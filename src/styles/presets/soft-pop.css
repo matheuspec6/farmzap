@@ -1,0 +1,14 @@
+/* 
+label: Soft Pop
+value: soft-pop 
+*/
+
+:root[data-theme-preset="soft-pop"] {
+    --primary: 280 65% 62%;
+    --ring: 280 65% 62%;
+}
+
+.dark:root[data-theme-preset="soft-pop"] {
+    --primary: 280 40% 75%;
+    --ring: 280 40% 75%;
+}

@@ -1,0 +1,14 @@
+/* 
+label: Rose
+value: rose  
+*/
+
+:root[data-theme-preset="rose"] {
+  --primary: 347 77% 53%;
+  --ring: 347 77% 53%;
+}
+
+.dark:root[data-theme-preset="rose"] {
+  --primary: 347 60% 75%;
+  --ring: 347 60% 75%;
+}

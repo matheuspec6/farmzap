@@ -1,0 +1,14 @@
+/* 
+label: Sapphire
+value: sapphire
+*/
+
+:root[data-theme-preset="sapphire"] {
+  --primary: 210 80% 45%;
+  --ring: 210 80% 45%;
+}
+
+.dark:root[data-theme-preset="sapphire"] {
+  --primary: 210 50% 75%;
+  --ring: 210 50% 75%;
+}

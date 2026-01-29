@@ -1,0 +1,14 @@
+/* 
+label: Tangerine
+value: tangerine  
+*/
+
+:root[data-theme-preset="tangerine"] {
+    --primary: 32 100% 50%;
+    --ring: 32 100% 50%;
+}
+
+.dark:root[data-theme-preset="tangerine"] {
+    --primary: 32 70% 70%;
+    --ring: 32 70% 70%;
+}

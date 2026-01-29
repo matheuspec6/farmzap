@@ -1,0 +1,14 @@
+/* 
+label: Violet
+value: violet  
+*/
+
+:root[data-theme-preset="violet"] {
+  --primary: 272 84% 60%;
+  --ring: 272 84% 60%;
+}
+
+.dark:root[data-theme-preset="violet"] {
+  --primary: 272 50% 75%;
+  --ring: 272 50% 75%;
+}

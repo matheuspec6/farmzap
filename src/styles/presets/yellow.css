@@ -1,0 +1,14 @@
+/* 
+label: Yellow
+value: yellow  
+*/
+
+:root[data-theme-preset="yellow"] {
+  --primary: 50 94% 50%;
+  --ring: 50 94% 50%;
+}
+
+.dark:root[data-theme-preset="yellow"] {
+  --primary: 50 70% 70%;
+  --ring: 50 70% 70%;
+}

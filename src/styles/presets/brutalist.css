@@ -1,0 +1,14 @@
+/* 
+label: Brutalist
+value: brutalist 
+*/
+
+:root[data-theme-preset="brutalist"] {
+  --primary: 0 0% 10%;
+  --ring: 0 0% 10%;
+}
+
+.dark:root[data-theme-preset="brutalist"] {
+  --primary: 0 0% 90%;
+  --ring: 0 0% 90%;
+}

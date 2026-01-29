@@ -1,0 +1,14 @@
+/* 
+label: Red
+value: red  
+*/
+
+:root[data-theme-preset="red"] {
+  --primary: 0 84% 60%;
+  --ring: 0 84% 60%;
+}
+
+.dark:root[data-theme-preset="red"] {
+  --primary: 0 62% 70%;
+  --ring: 0 62% 70%;
+}

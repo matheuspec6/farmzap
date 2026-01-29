@@ -1,0 +1,10 @@
+/* Green theme overrides using data-theme-preset="green" */
+:root[data-theme-preset="green"] {
+  --primary: 142.1 76.2% 36.3%;
+  --ring: 142.1 76.2% 36.3%;
+}
+
+.dark:root[data-theme-preset="green"] {
+  --primary: 142.8 24% 75%;
+  --ring: 142.8 24% 75%;
+}
