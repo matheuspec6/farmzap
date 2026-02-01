@@ -55,6 +55,7 @@ export function ensureWorker(url?: string): Worker {
           blockIndex?: number
           delay?: number
           attemptedInstances?: string[] // Rastreia instâncias já tentadas
+          provider?: string
         }
         
         // Configura Timeout de 30s para a requisição
@@ -62,41 +63,99 @@ export function ensureWorker(url?: string): Worker {
         const timeoutId = setTimeout(() => controller.abort(), 30000)
 
         try {
-          const endpoint = `${process.env.EVOLUTION_API_URL || data.baseUrl}/message/sendText/${data.instance}`
-          const payload = {
-            number: data.number,
-            text: data.text,
-            delay: typeof data.delay === "number" ? data.delay : 0,
-            linkPreview: true,
-          }
-
-          const resp = await fetch(endpoint, {
-            method: "POST",
-            headers: {
-              apikey: process.env.EVOLUTION_API_KEY || "",
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify(payload),
-            signal: controller.signal
-          })
-
-          clearTimeout(timeoutId)
-          const ok = resp.ok
-          
-          // Se for erro de servidor (5xx) ou Rate Limit (429), lança erro para o BullMQ tentar novamente
-          if (!ok && (resp.status >= 500 || resp.status === 429)) {
-            throw new Error(`Evolution API Error: ${resp.status} ${resp.statusText}`)
-          }
-
+          let ok = false
+          let status = 0
           let body: any = null
-          try {
-            const txt = await resp.text()
-            try {
-              body = JSON.parse(txt)
-            } catch {
-              body = txt
+          let endpoint = ""
+          let payload: any = {}
+
+          if (data.provider === "uazapi") {
+            const uazapiUrl = (process.env.UAZAPI_URL || "https://free.uazapi.com").replace(/\/$/, "")
+            const uazapiToken = (process.env.UAZAPI_TOKEN || "").trim()
+            
+            console.log(`[Worker] Processando envio Uazapi para ${data.number}`)
+
+            if (!uazapiUrl || !uazapiToken) {
+               throw new Error("Configuração da Uazapi incompleta (URL ou Token ausente)")
             }
-          } catch {}
+
+            const hasChoices = Array.isArray((data as any).choices) && ((data as any).choices).length > 0
+            if (hasChoices) {
+              endpoint = `${uazapiUrl}/send/menu`
+              payload = {
+                number: data.number,
+                type: "button",
+                text: data.text,
+                choices: (data as any).choices,
+                footerText: (data as any).footerText || undefined,
+                imageButton: (data as any).imageButton || undefined
+              }
+            } else {
+              endpoint = `${uazapiUrl}/send/text`
+              payload = {
+                number: data.number,
+                text: data.text
+              }
+            }
+
+            const resp = await fetch(endpoint, {
+              method: "POST",
+              headers: {
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "token": uazapiToken
+              },
+              body: JSON.stringify(payload),
+              signal: controller.signal
+            })
+            
+            clearTimeout(timeoutId)
+            status = resp.status
+            ok = resp.ok // Uazapi retorna 200/201 como ok
+            
+            try {
+               const txt = await resp.text()
+               try { body = JSON.parse(txt) } catch { body = txt }
+            } catch {}
+
+            // Validação específica da Uazapi
+            // Exemplo de sucesso: [{ key: { remoteJid: ... }, status: "PENDING" }]
+            // Se vier array vazio ou erro, consideramos falha?
+            // A princípio, se status for 200, consideramos enviado.
+            
+          } else {
+            // Lógica padrão (Evolution API)
+            endpoint = `${process.env.EVOLUTION_API_URL || data.baseUrl}/message/sendText/${data.instance}`
+            payload = {
+              number: data.number,
+              text: data.text,
+              delay: typeof data.delay === "number" ? data.delay : 0,
+              linkPreview: true,
+            }
+
+            const resp = await fetch(endpoint, {
+              method: "POST",
+              headers: {
+                apikey: process.env.EVOLUTION_API_KEY || "",
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify(payload),
+              signal: controller.signal
+            })
+
+            clearTimeout(timeoutId)
+            status = resp.status
+            ok = resp.ok
+
+            if (!ok && (status >= 500 || status === 429)) {
+               throw new Error(`Evolution API Error: ${status} ${resp.statusText}`)
+            }
+
+            try {
+              const txt = await resp.text()
+              try { body = JSON.parse(txt) } catch { body = txt }
+            } catch {}
+          }
           
           const campaignId = data.campaignId
           const phone = String(data.number || "").replace(/\D/g, "")
@@ -146,7 +205,7 @@ export function ensureWorker(url?: string): Worker {
             } catch {}
           }
           
-          return { ok, status: resp.status, body, endpoint, payload, campaignId, blockIndex: data.blockIndex }
+          return { ok, status, body, endpoint, payload, campaignId, blockIndex: data.blockIndex }
 
         } catch (err: any) {
           clearTimeout(timeoutId)
@@ -158,9 +217,10 @@ export function ensureWorker(url?: string): Worker {
 
           // Só tenta failover se for erro de rede/servidor e tivermos campaignId (envio crítico)
           // Ignora se for erro 400 (Bad Request - provavelmente número inválido) a menos que seja timeout
-          const isRecoverable = true // Vamos tentar recuperar qualquer erro por segurança, exceto se soubermos que é o número
+          // E ignora se for Uazapi (pois não usa sistema de instâncias da Evolution)
+          const isRecoverable = true 
 
-          if (isRecoverable && data.campaignId) {
+          if (isRecoverable && data.campaignId && data.provider !== 'uazapi') {
              console.log(`[Failover] Falha na instância ${currentInstance}. Tentando buscar alternativa...`)
              
              // Busca instâncias online AGORA

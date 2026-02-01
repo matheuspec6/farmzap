@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { getQueue } from "@/server/queue"
 import { ensureWorker } from "@/server/worker"
+import { supabase } from "@/lib/supabase"
 import Redis from "ioredis"
 
 export async function POST(request: Request) {
@@ -11,6 +12,18 @@ export async function POST(request: Request) {
     const baseUrl = process.env.EVOLUTION_API_URL || body.baseUrl || ""
     const intervalSec = Math.max(0, Number(body.intervalSec) || 0)
     const now = Date.now()
+
+    // Busca provedor padrão (permite override pelo body.provider)
+    let provider = body.provider ? String(body.provider) : "evolution"
+    try {
+      const { data } = await supabase
+        .from("app_settings")
+        .select("value")
+        .eq("key", "default_provider")
+        .maybeSingle()
+      if (!body.provider && data?.value) provider = data.value
+    } catch {}
+
     let count = 0
     let url = process.env.REDIS_URL || "redis://127.0.0.1:6379"
     if (body.redisUrl) {
@@ -65,12 +78,47 @@ export async function POST(request: Request) {
       for (let i = 0; i < list.length; i++) {
         const lead = list[i]
         const number = String(lead.phone || "").replace(/\D/g, "")
-        const text = applyTemplate(String(b.message || ""), lead)
-        if (!number || !instance || !text) continue
+        let text = ""
+        let choices: string[] | undefined = undefined
+        let footerText: string | undefined = undefined
+        let imageButton: string | undefined = undefined
+        let jobProvider = provider
+        // Suporte a modelo menu serializado em JSON no campo message
+        const rawMsg = String(b.message || "")
+        try {
+          const parsed = JSON.parse(rawMsg)
+          const isMenu = !!parsed && typeof parsed === "object" && ((parsed.type === "menu") || (Array.isArray(parsed.choices) && parsed.choices.length))
+          if (isMenu) {
+            text = applyTemplate(String(parsed.text || ""), lead)
+            if (Array.isArray(parsed.choices) && parsed.choices.length) {
+              choices = parsed.choices.map((c: any) => String(c))
+            }
+            footerText = parsed.footerText ? String(parsed.footerText) : undefined
+            imageButton = parsed.imageButton ? String(parsed.imageButton) : undefined
+            jobProvider = "uazapi"
+          } else {
+            text = applyTemplate(rawMsg, lead)
+          }
+        } catch {
+          text = applyTemplate(rawMsg, lead)
+        }
+        if (!number || (jobProvider !== "uazapi" && !instance) || !text) continue
         const leadDelay = delay + i * intervalSec * 1000
+        const jobData: any = { number, text, campaignId, blockIndex, delay: 0, provider: jobProvider }
+        
+        // Se for Evolution, adiciona baseUrl e instance. Se for Uazapi, não precisa.
+        if (jobProvider !== "uazapi") {
+           jobData.baseUrl = baseUrl
+           jobData.instance = instance
+        } else {
+           if (choices && choices.length) jobData.choices = choices
+           if (footerText) jobData.footerText = footerText
+           if (imageButton) jobData.imageButton = imageButton
+        }
+
         await sendQueue.add(
           "send-text",
-          { baseUrl, instance, number, text, campaignId, blockIndex, delay: 0 },
+          jobData,
           { 
             delay: leadDelay, 
             removeOnComplete: { count: 2000, age: 24 * 3600 }, 

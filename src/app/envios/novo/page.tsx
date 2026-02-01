@@ -64,6 +64,9 @@ export default function ConfigurarEnvioPage() {
   const [selectedTagId, setSelectedTagId] = React.useState<string>("")
   const [allContacts, setAllContacts] = React.useState<any[]>([])
   const [templates, setTemplates] = React.useState<any[]>([])
+  const [selectedTemplate, setSelectedTemplate] = React.useState<any | null>(null)
+  const [showTemplatePreview, setShowTemplatePreview] = React.useState(false)
+  const [selectedTemplateContent, setSelectedTemplateContent] = React.useState<{ text: string; choices: string[]; footerText?: string; imageButton?: string } | null>(null)
 
   const BRAZIL_TZ = "America/Sao_Paulo"
   const formatBrazilDateTime = (d: Date | null) => {
@@ -228,8 +231,9 @@ export default function ConfigurarEnvioPage() {
           const end = start + leadsPerBlock
           blocks.push(leads.slice(start, end))
         }
+        const isMenuTemplate = !!selectedTemplate && selectedTemplate.type === "menu" && !!selectedTemplateContent && !!(selectedTemplateContent.choices && selectedTemplateContent.choices.length)
         let variations: string[] = Array(blockCount).fill(message)
-        if (aiMerge) {
+        if (aiMerge && !isMenuTemplate) {
           try {
             const res = await fetch("/api/ai/variations", {
               method: "POST",
@@ -248,6 +252,7 @@ export default function ConfigurarEnvioPage() {
           startAt: baseStart,
           endAt: endLimit || undefined,
           intervalSec: interval,
+          provider: isMenuTemplate ? "uazapi" : undefined,
           blocks: blocks.map((group, i) => {
             const when = addSeconds(baseStart, i * interval)
             if (endLimit && isAfter(when, endLimit)) return null
@@ -259,7 +264,15 @@ export default function ConfigurarEnvioPage() {
                 const digits = String(g.phone || "").replace(/\D/g, "")
                 return { name: g.name, phone: digits, original: g.original }
               }),
-              message: variations[i],
+              message: isMenuTemplate
+                ? JSON.stringify({
+                    type: "menu",
+                    text: variations[i],
+                    choices: selectedTemplateContent?.choices || [],
+                    footerText: selectedTemplateContent?.footerText || undefined,
+                    imageButton: selectedTemplateContent?.imageButton || undefined
+                  })
+                : variations[i],
               instance,
               endpoint: instance ? `/message/sendText/${instance}` : null,
             }
@@ -599,6 +612,11 @@ export default function ConfigurarEnvioPage() {
               <div className="flex items-center justify-between">
                 <Label htmlFor="message">Mensagem</Label>
                 <div className="flex items-center gap-2">
+                  {selectedTemplate && (
+                    <Badge variant="secondary" className="h-8 px-2 text-xs">
+                      Modelo: {selectedTemplate.name}
+                    </Badge>
+                  )}
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button variant="outline" size="sm" className="h-8 px-2 text-xs">
@@ -613,13 +631,63 @@ export default function ConfigurarEnvioPage() {
                         <div className="p-2 text-xs text-muted-foreground text-center">Nenhum modelo</div>
                       ) : (
                         templates.map(t => (
-                          <DropdownMenuItem key={t.id} onClick={() => setMessage(t.content)}>
+                          <DropdownMenuItem
+                            key={t.id}
+                            onClick={() => {
+                              setSelectedTemplate(t)
+                              try {
+                                if (t.type === "menu") {
+                                  const parsed = JSON.parse(t.content || "{}")
+                                  const text = String(parsed.text || "")
+                                  const choices = Array.isArray(parsed.choices) ? parsed.choices.map((c: any) => String(c)) : []
+                                  const footerText = parsed.footerText ? String(parsed.footerText) : undefined
+                                  const imageButton = parsed.imageButton ? String(parsed.imageButton) : undefined
+                                  setSelectedTemplateContent({ text, choices, footerText, imageButton })
+                                  setMessage(text)
+                                  setShowTemplatePreview(true)
+                                } else {
+                                  setMessage(t.content || "")
+                                  setSelectedTemplateContent(null)
+                                  setShowTemplatePreview(false)
+                                }
+                              } catch {
+                                setMessage(t.content || "")
+                                setSelectedTemplateContent(null)
+                                setShowTemplatePreview(false)
+                              }
+                              setIsExpanded(false)
+                            }}
+                          >
                             {t.name}
                           </DropdownMenuItem>
                         ))
                       )}
                     </DropdownMenuContent>
                   </DropdownMenu>
+                  {selectedTemplate && (
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 px-2 text-xs"
+                        onClick={() => setShowTemplatePreview((v) => !v)}
+                      >
+                        {showTemplatePreview ? "Ocultar prévia" : "Prévia"}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 px-2 text-xs"
+                        onClick={() => {
+                          setSelectedTemplate(null)
+                          setShowTemplatePreview(false)
+                          setSelectedTemplateContent(null)
+                        }}
+                      >
+                        Remover modelo
+                      </Button>
+                    </>
+                  )}
                   <Dialog open={isExpanded} onOpenChange={setIsExpanded}>
                     <DialogTrigger asChild>
                       <Button variant="ghost" size="sm" className="h-8 px-2 text-xs">
@@ -635,6 +703,7 @@ export default function ConfigurarEnvioPage() {
                         <Textarea 
                           value={message}
                           onChange={(e) => setMessage(e.target.value)}
+                          disabled={!!selectedTemplate}
                           className="h-full resize-none font-mono text-sm"
                           placeholder="Digite sua mensagem aqui..."
                         />
@@ -646,13 +715,29 @@ export default function ConfigurarEnvioPage() {
                   </Dialog>
                 </div>
               </div>
-              <Textarea 
-                id="message" 
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                placeholder="Olá {nome}, tudo bem?" 
-                className="h-[100px] font-mono text-sm"
-              />
+              {!selectedTemplate && (
+                <Textarea 
+                  id="message" 
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  placeholder="Olá {nome}, tudo bem?" 
+                  className="h-[100px] font-mono text-sm"
+                />
+              )}
+              {selectedTemplate && showTemplatePreview && (
+                <div className="mt-2">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-sm">Prévia do modelo</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="p-2 text-sm whitespace-pre-wrap break-words bg-muted rounded max-h-[60px] overflow-hidden">
+                        {message || ""}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
               <p className="text-xs text-muted-foreground">
                 Dica: Use {"{nome}"} para personalizar com o nome do contato.
               </p>

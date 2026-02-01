@@ -7,6 +7,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
 
 export default function TesteConexoesPage() {
   const [supabaseStatus, setSupabaseStatus] = React.useState<null | { ok: boolean; message: string }>(null)
@@ -20,6 +22,8 @@ export default function TesteConexoesPage() {
   const [db, setDb] = React.useState("0")
   const [redisStatus, setRedisStatus] = React.useState<null | { ok: boolean; message: string }>(null)
 
+  const [provider, setProvider] = React.useState("evolution")
+  const [isActive, setIsActive] = React.useState(true)
   const [instance, setInstance] = React.useState("")
   const [number, setNumber] = React.useState("")
   const [text, setText] = React.useState("teste de envio")
@@ -92,8 +96,13 @@ export default function TesteConexoesPage() {
   }
 
   const testSend = async () => {
+    if (!isActive) {
+      setSendStatus({ ok: false, message: "Instância inativa/desconectada" })
+      return
+    }
+
     setSendStatus(null)
-    const payload = { instance, number, text }
+    const payload = { instance, number, text, provider }
     console.log("Teste Envio - request:", payload)
     try {
       const res = await fetch("/api/test/send", {
@@ -177,29 +186,59 @@ export default function TesteConexoesPage() {
       <Card>
         <CardContent className="p-6 space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="text-lg font-medium">Envio de Mensagem (Evolution)</h3>
+            <h3 className="text-lg font-medium">Envio de Mensagem</h3>
             {sendStatus && (
               <Badge variant={sendStatus.ok ? "default" : "destructive"}>
                 {sendStatus.message}
               </Badge>
             )}
           </div>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
             <div className="space-y-2">
-              <Label>Instância</Label>
-              <Input value={instance} onChange={(e) => setInstance(e.target.value)} placeholder="ex: instance-001" />
+              <Label>Provedor</Label>
+              <Select value={provider} onValueChange={setProvider}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="evolution">Evolution API</SelectItem>
+                  <SelectItem value="uazapi">Uazapi</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2 flex flex-col justify-end h-full pb-3">
+              <div className="flex items-center space-x-2">
+                <Switch 
+                  id="instance-active" 
+                  checked={isActive}
+                  onCheckedChange={setIsActive}
+                />
+                <Label htmlFor="instance-active">
+                  {isActive ? "Instância Ativa (Conectada)" : "Instância Inativa (Desconectada)"}
+                </Label>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Instância (Nome/ID)</Label>
+              <Input 
+                value={instance} 
+                onChange={(e) => setInstance(e.target.value)} 
+                placeholder={provider === 'evolution' ? "ex: instance-001" : "Opcional p/ Uazapi"} 
+              />
             </div>
             <div className="space-y-2">
               <Label>Número</Label>
               <Input value={number} onChange={(e) => setNumber(e.target.value)} placeholder="5511999999999" />
             </div>
-            <div className="space-y-2">
+          </div>
+          <div className="grid grid-cols-1 gap-4">
+             <div className="space-y-2">
               <Label>Mensagem</Label>
               <Input value={text} onChange={(e) => setText(e.target.value)} />
             </div>
           </div>
           <div className="flex justify-end">
-            <Button onClick={testSend}>Enviar Mensagem de Teste</Button>
+            <Button onClick={testSend} disabled={!isActive}>Enviar Mensagem de Teste</Button>
           </div>
         </CardContent>
       </Card>
