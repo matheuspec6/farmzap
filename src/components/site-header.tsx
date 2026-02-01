@@ -25,7 +25,7 @@ export function SiteHeader() {
       "/": "Dashboard",
       "/envios": "Envios",
       "/envios/novo": "Novo Envio",
-      "/instancias": "Instâncias",
+      "/instancias": "Canais",
       "/testes/conexoes": "Testes de Conexão",
     } as Record<string, string>)[pathname] ?? "Dashboard"
 

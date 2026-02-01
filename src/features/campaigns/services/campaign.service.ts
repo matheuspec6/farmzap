@@ -97,5 +97,45 @@ export const campaignService = {
       .eq('campaign_id', id)
       .neq('status', 'enviado')
     if (leadsError) throw leadsError
+  },
+
+  async getHistoryByPhone(phone: string) {
+    // Normaliza o telefone para busca (apenas números)
+    const cleanPhone = phone.replace(/\D/g, "")
+    
+    const { data, error } = await supabase
+      .from('leads')
+      .select(`
+        id,
+        status,
+        created_at,
+        campaign:campaigns (
+          name,
+          message_template
+        )
+      `)
+      .eq('phone', cleanPhone)
+      .order('created_at', { ascending: false })
+
+    if (error) throw error
+    
+    return data.map((item: any) => ({
+      id: item.id,
+      campaignName: item.campaign?.name || "Campanha Desconhecida",
+      message: item.campaign?.message_template || "",
+      date: item.created_at,
+      status: item.status
+    }))
+  },
+
+  async getCampaignLeads(campaignId: string) {
+    const { data, error } = await supabase
+      .from('leads')
+      .select('name, phone, status, sent_at, custom_fields')
+      .eq('campaign_id', campaignId)
+      .order('name', { ascending: true })
+    
+    if (error) throw error
+    return data
   }
 }

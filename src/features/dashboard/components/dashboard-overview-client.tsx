@@ -158,13 +158,6 @@ import { ChartResponses } from "@/features/dashboard/components/chart-responses"
              </CardHeader>
              <CardContent>
               <div className="text-2xl font-bold">{instances.length}</div>
-              <div className="mt-2 flex flex-wrap gap-1">
-                {instances.map((i, idx) => (
-                  <Badge key={`${i.name}-${idx}`} variant="outline">
-                    {i.profileName || i.name || "Instância"}
-                  </Badge>
-                ))}
-              </div>
              </CardContent>
            </Card>
           <Card>

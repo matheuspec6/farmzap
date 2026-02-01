@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { ChevronDownIcon, Maximize2, Upload, FileSpreadsheet, Users } from "lucide-react"
+import { ChevronDownIcon, Maximize2, Upload, FileSpreadsheet, Users, LayoutTemplate } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { ptBR } from "date-fns/locale"
 import { addSeconds, isAfter } from "date-fns"
@@ -19,6 +19,7 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -35,7 +36,16 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { campaignService } from "@/features/campaigns/services/campaign.service"
+import { contactService } from "@/features/contacts/services/contact.service"
+import { templateService } from "@/features/templates/services/template.service"
 import { cn } from "@/lib/utils"
 
 export default function ConfigurarEnvioPage() {
@@ -48,6 +58,12 @@ export default function ConfigurarEnvioPage() {
   const [openStart, setOpenStart] = React.useState(false)
   const [openEnd, setOpenEnd] = React.useState(false)
   const [isLoading, setIsLoading] = React.useState(false)
+  
+  // Tag selection state
+  const [tags, setTags] = React.useState<{id: string, name: string, color: string}[]>([])
+  const [selectedTagId, setSelectedTagId] = React.useState<string>("")
+  const [allContacts, setAllContacts] = React.useState<any[]>([])
+  const [templates, setTemplates] = React.useState<any[]>([])
 
   const BRAZIL_TZ = "America/Sao_Paulo"
   const formatBrazilDateTime = (d: Date | null) => {
@@ -70,6 +86,12 @@ export default function ConfigurarEnvioPage() {
     return now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, timeZone: BRAZIL_TZ })
   }
   
+  const getCurrentTimePlus2 = () => {
+    const now = new Date()
+    now.setMinutes(now.getMinutes() + 2)
+    return now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, timeZone: BRAZIL_TZ })
+  }
+  
   // Novos estados
   const [splitCount, setSplitCount] = React.useState("")
   const [messageInterval, setMessageInterval] = React.useState("")
@@ -78,9 +100,14 @@ export default function ConfigurarEnvioPage() {
   const [connectedInstances, setConnectedInstances] = React.useState<{ id: string; name: string; key?: string; profileName?: string }[]>([])
   const [selectedInstanceNames, setSelectedInstanceNames] = React.useState<string[]>([])
   const [aiMerge, setAiMerge] = React.useState<boolean>(false)
-  const [startTime, setStartTime] = React.useState(getCurrentTime())
+  const [startTime, setStartTime] = React.useState(getCurrentTimePlus2())
   const [endTime, setEndTime] = React.useState(getCurrentTime())
   const [justReduced, setJustReduced] = React.useState(false)
+
+  React.useEffect(() => {
+    // Definir data inicial como hoje
+    setStartDate(new Date())
+  }, [])
 
   React.useEffect(() => {
     const loadInstances = async () => {
@@ -94,7 +121,28 @@ export default function ConfigurarEnvioPage() {
     }
     loadInstances()
   }, [])
+  
   React.useEffect(() => {
+    // Load Tags and Contacts
+    const loadData = async () => {
+        try {
+            const [fetchedTags, fetchedContacts, fetchedTemplates] = await Promise.all([
+                contactService.getTags(),
+                contactService.getContacts(),
+                templateService.getTemplates()
+            ])
+            
+            setTags(fetchedTags)
+            setAllContacts(fetchedContacts)
+            
+            const activeTemplates = fetchedTemplates.filter((t: any) => t.status === 'active')
+            setTemplates(activeTemplates)
+        } catch (error) {
+            console.error("Erro ao carregar dados:", error)
+        }
+    }
+    loadData()
+
     try {
       const raw = localStorage.getItem("selectedLeads")
       if (raw) {
@@ -110,13 +158,23 @@ export default function ConfigurarEnvioPage() {
     } catch {}
   }, [])
 
+  React.useEffect(() => {
+    if (selectedTagId) {
+        const filtered = allContacts.filter(c => c.tags && c.tags.includes(selectedTagId))
+        // Normalizar para o formato esperado (name, phone, original)
+        setLeads(filtered.map(c => ({ name: c.name, phone: c.phone, original: c })))
+    } else if (leads.length === 0 && allContacts.length > 0) {
+        // Se não tem tag selecionada e leads está vazio, não faz nada (espera seleção)
+    }
+  }, [selectedTagId, allContacts])
+
   const handleImport = (importedLeads: any[]) => {
     setLeads(importedLeads)
   }
 
   const handleSave = async () => {
     if (!campaignName || !startDate || leads.length === 0 || (endEnabled && !endDate)) {
-      alert("Preencha todos os campos obrigatórios (Nome, Datas) e importe os leads.")
+      alert("Preencha todos os campos obrigatórios e selecione uma etiqueta com contatos.")
       return
     }
 
@@ -229,51 +287,7 @@ export default function ConfigurarEnvioPage() {
     }
   }
 
-  if (leads.length === 0) {
-    return (
-        <div className="flex-1 flex flex-col items-center justify-center p-8 min-h-[80vh] animate-in fade-in zoom-in duration-300">
-            <div className="max-w-md w-full text-center space-y-6">
-                <div className="mx-auto w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mb-6">
-                    <FileSpreadsheet className="h-10 w-10 text-primary" />
-                </div>
-                
-                <div className="space-y-2">
-                    <h2 className="text-3xl font-bold tracking-tight">Comece importando seus leads</h2>
-                    <p className="text-muted-foreground">
-                        Para configurar um novo envio, primeiro precisamos da lista de contatos.
-                        Aceitamos arquivos .xlsx e .csv.
-                    </p>
-                </div>
 
-                <div className="pt-4">
-                    <div className="flex flex-col gap-3">
-                      <Button 
-                        size="lg" 
-                        className="w-full gap-2 text-lg h-14 bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg hover:shadow-xl transition-all"
-                        onClick={() => router.push("/contatos/novo")}
-                      >
-                        <Upload className="h-5 w-5" />
-                        Importar Grupo de Leads
-                      </Button>
-                      <Button 
-                        size="lg" 
-                        variant="outline" 
-                        className="w-full gap-2 text-lg h-14"
-                        onClick={() => router.push("/contatos?selectLeads=1")}
-                      >
-                        <Users className="h-5 w-5" />
-                        Selecionar Leads dos Contatos
-                      </Button>
-                    </div>
-                </div>
-                
-                <p className="text-xs text-muted-foreground pt-4">
-                    Seus dados serão processados de forma segura e vinculados a este envio.
-                </p>
-            </div>
-        </div>
-    )
-  }
 
   return (
     <div className="flex-1 space-y-4 p-8 pt-6">
@@ -285,6 +299,32 @@ export default function ConfigurarEnvioPage() {
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <div className="col-span-4 md:col-span-2 space-y-6">
+
+          {/* Destinatários */}
+          <div className="rounded-md border p-4">
+            <h3 className="mb-4 text-lg font-medium">Destinatários</h3>
+            <div className="flex flex-col gap-3">
+                <Label>Selecionar Etiqueta</Label>
+                <Select value={selectedTagId} onValueChange={setSelectedTagId}>
+                    <SelectTrigger>
+                        <SelectValue placeholder="Selecione uma etiqueta..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {tags.map(tag => (
+                            <SelectItem key={tag.id} value={tag.id}>
+                                <div className="flex items-center gap-2">
+                                    <div className="w-3 h-3 rounded-full" style={{backgroundColor: tag.color}} />
+                                    {tag.name}
+                                </div>
+                            </SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+                <div className="text-sm text-muted-foreground">
+                    {leads.length} contatos encontrados com esta etiqueta.
+                </div>
+            </div>
+          </div>
 
           {/* Nome da Campanha */}
           <div className="rounded-md border p-4">
@@ -327,6 +367,11 @@ export default function ConfigurarEnvioPage() {
                         setStartDate(date) 
                         setOpenStart(false) 
                       }}
+                      disabled={(date) => {
+                        const today = new Date()
+                        today.setHours(0, 0, 0, 0)
+                        return date < today
+                      }}
                       locale={ptBR}
                     /> 
                   </PopoverContent> 
@@ -346,75 +391,77 @@ export default function ConfigurarEnvioPage() {
                 /> 
               </div> 
             </div> 
-          </div>
 
-          {/* Fim do Agendamento */}
-          <div className="rounded-md border p-4">
-             <div className="mb-4 flex items-center justify-between">
-               <h3 className="text-lg font-medium">Fim do Agendamento</h3>
-               <div className="flex items-center gap-2">
-                 <Checkbox
-                   id="end-enabled"
-                   checked={endEnabled}
-                   onCheckedChange={(checked) => {
-                     const val = !!checked
-                     setEndEnabled(val)
+            <div className="mt-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Checkbox
+                  id="end-enabled"
+                  checked={endEnabled}
+                  onCheckedChange={(checked) => {
+                    const val = !!checked
+                    setEndEnabled(val)
                     if (!val) {
                       setOpenEnd(false)
                     } else {
                       setEndDate(new Date())
                       setEndTime(getCurrentTime())
                     }
-                   }}
-                 />
-                 <Label htmlFor="end-enabled" className="text-sm">Ativar fim do agendamento</Label>
-               </div>
-             </div>
-             <div className="flex gap-4"> 
-              <div className="flex flex-col gap-3"> 
-                <Label htmlFor="end-date-picker" className="px-1"> 
-                  Data 
-                </Label> 
-                <Popover open={openEnd} onOpenChange={setOpenEnd}> 
-                  <PopoverTrigger asChild> 
-                    <Button 
-                      variant="outline" 
-                      id="end-date-picker" 
-                      className="w-[240px] justify-between font-normal" 
-                      disabled={!endEnabled}
-                    > 
-                      {endDate ? endDate.toLocaleDateString("pt-BR") : "Selecione a data"} 
-                      <ChevronDownIcon className="h-4 w-4 opacity-50" /> 
-                    </Button> 
-                  </PopoverTrigger> 
-                  <PopoverContent className="w-auto overflow-hidden p-0" align="start"> 
-                    <Calendar 
-                      mode="single" 
-                      selected={endDate} 
-                      onSelect={(date) => { 
-                        setEndDate(date) 
-                        setOpenEnd(false) 
-                      }}
-                      locale={ptBR}
-                    /> 
-                  </PopoverContent> 
-                </Popover> 
-              </div> 
-              <div className="flex flex-col gap-3"> 
-                <Label htmlFor="end-time-picker" className="px-1"> 
-                  Hora 
-                </Label> 
-                <Input 
-                  type="text" 
-                  id="end-time-picker" 
-                  value={endTime}
-                  onChange={(e) => setEndTime(e.target.value)}
-                  placeholder="HH:MM:SS"
-                  className="bg-background appearance-none w-[150px]" 
-                  disabled={!endEnabled}
-                /> 
-              </div> 
-            </div> 
+                  }}
+                />
+                <Label htmlFor="end-enabled" className="text-sm font-normal text-muted-foreground">Ativar fim do agendamento</Label>
+              </div>
+              
+              {endEnabled && (
+                  <div className="flex gap-4 animate-in fade-in slide-in-from-top-2 duration-300 mt-2"> 
+                    <div className="flex flex-col gap-3"> 
+                      <Label htmlFor="end-date-picker" className="px-1"> 
+                        Data Final
+                      </Label> 
+                      <Popover open={openEnd} onOpenChange={setOpenEnd}> 
+                        <PopoverTrigger asChild> 
+                          <Button 
+                            variant="outline" 
+                            id="end-date-picker" 
+                            className="w-[240px] justify-between font-normal" 
+                          > 
+                            {endDate ? endDate.toLocaleDateString("pt-BR") : "Selecione a data"} 
+                            <ChevronDownIcon className="h-4 w-4 opacity-50" /> 
+                          </Button> 
+                        </PopoverTrigger> 
+                        <PopoverContent className="w-auto overflow-hidden p-0" align="start"> 
+                          <Calendar 
+                            mode="single" 
+                            selected={endDate} 
+                            onSelect={(date) => { 
+                              setEndDate(date) 
+                              setOpenEnd(false) 
+                            }}
+                            disabled={(date) => {
+                              const today = new Date()
+                              today.setHours(0, 0, 0, 0)
+                              return date < today
+                            }}
+                            locale={ptBR}
+                          /> 
+                        </PopoverContent> 
+                      </Popover> 
+                    </div> 
+                    <div className="flex flex-col gap-3"> 
+                      <Label htmlFor="end-time-picker" className="px-1"> 
+                        Hora Final
+                      </Label> 
+                      <Input 
+                        type="text" 
+                        id="end-time-picker" 
+                        value={endTime}
+                        onChange={(e) => setEndTime(e.target.value)}
+                        placeholder="HH:MM:SS"
+                        className="bg-background appearance-none w-[150px]" 
+                      /> 
+                    </div> 
+                  </div> 
+              )}
+            </div>
           </div>
 
           {(() => {
@@ -478,12 +525,12 @@ export default function ConfigurarEnvioPage() {
           })()}
 
           {/* Configurações de Envio */}
-          <div className="rounded-md border p-4 space-y-4">
+          <div className="rounded-md border p-4 space-y-6">
             <h3 className="text-lg font-medium">Parâmetros de Envio</h3>
             
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="split-count">Dividir contatos em lotes de</Label>
+            <div className="grid grid-cols-2 gap-6">
+              <div className="space-y-3">
+                <Label htmlFor="split-count">Divisão dos grupo de de contatos</Label>
                 <Input 
                   id="split-count" 
                   type="number" 
@@ -492,7 +539,7 @@ export default function ConfigurarEnvioPage() {
                   onChange={(e) => setSplitCount(e.target.value)}
                 />
               </div>
-              <div className="space-y-2">
+              <div className="space-y-3">
                 <Label htmlFor="message-interval">Tempo entre mensagens (seg)</Label>
                 <Input 
                   id="message-interval" 
@@ -504,9 +551,9 @@ export default function ConfigurarEnvioPage() {
               </div>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <Label>Instâncias conectadas</Label>
+                <Label>Canais conectados</Label>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline" size="sm" className="h-8 px-2 text-xs">
@@ -514,10 +561,10 @@ export default function ConfigurarEnvioPage() {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-64">
-                    <DropdownMenuLabel>Conectadas (open)</DropdownMenuLabel>
+                    <DropdownMenuLabel>Conectados (open)</DropdownMenuLabel>
                     <DropdownMenuSeparator />
                     {connectedInstances.length === 0 ? (
-                      <DropdownMenuLabel className="text-muted-foreground">Nenhuma instância</DropdownMenuLabel>
+                      <DropdownMenuLabel className="text-muted-foreground">Nenhum canal</DropdownMenuLabel>
                     ) : (
                       connectedInstances.map((inst) => (
                     <DropdownMenuCheckboxItem
@@ -551,30 +598,53 @@ export default function ConfigurarEnvioPage() {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label htmlFor="message">Mensagem</Label>
-                <Dialog open={isExpanded} onOpenChange={setIsExpanded}>
-                  <DialogTrigger asChild>
-                    <Button variant="ghost" size="sm" className="h-8 px-2 text-xs">
-                      <Maximize2 className="mr-2 h-3 w-3" />
-                      Expandir
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="sm:max-w-[600px] h-[80vh] flex flex-col">
-                    <DialogHeader>
-                      <DialogTitle>Editor de Mensagem</DialogTitle>
-                    </DialogHeader>
-                    <div className="flex-1 py-4">
-                      <Textarea 
-                        value={message}
-                        onChange={(e) => setMessage(e.target.value)}
-                        className="h-full resize-none font-mono text-sm"
-                        placeholder="Digite sua mensagem aqui..."
-                      />
-                    </div>
-                    <div className="flex justify-end">
-                      <Button onClick={() => setIsExpanded(false)}>Concluir</Button>
-                    </div>
-                  </DialogContent>
-                </Dialog>
+                <div className="flex items-center gap-2">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="sm" className="h-8 px-2 text-xs">
+                        <LayoutTemplate className="mr-2 h-3 w-3" />
+                        Usar modelo
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuLabel>Selecione um modelo</DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      {templates.length === 0 ? (
+                        <div className="p-2 text-xs text-muted-foreground text-center">Nenhum modelo</div>
+                      ) : (
+                        templates.map(t => (
+                          <DropdownMenuItem key={t.id} onClick={() => setMessage(t.content)}>
+                            {t.name}
+                          </DropdownMenuItem>
+                        ))
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <Dialog open={isExpanded} onOpenChange={setIsExpanded}>
+                    <DialogTrigger asChild>
+                      <Button variant="ghost" size="sm" className="h-8 px-2 text-xs">
+                        <Maximize2 className="mr-2 h-3 w-3" />
+                        Expandir
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-[600px] h-[80vh] flex flex-col">
+                      <DialogHeader>
+                        <DialogTitle>Editor de Mensagem</DialogTitle>
+                      </DialogHeader>
+                      <div className="flex-1 py-4">
+                        <Textarea 
+                          value={message}
+                          onChange={(e) => setMessage(e.target.value)}
+                          className="h-full resize-none font-mono text-sm"
+                          placeholder="Digite sua mensagem aqui..."
+                        />
+                      </div>
+                      <div className="flex justify-end">
+                        <Button onClick={() => setIsExpanded(false)}>Concluir</Button>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                </div>
               </div>
               <Textarea 
                 id="message" 
@@ -610,8 +680,27 @@ export default function ConfigurarEnvioPage() {
             const leadsCount = leads.length
             const leadsPerBlockN = Math.max(1, Number(splitCount) || 1)
             const intervalN = Math.max(1, Number(messageInterval) || 1)
-            const blocksCount = leadsCount ? Math.ceil(leadsCount / leadsPerBlockN) : 0
-            const durationSec = blocksCount ? (blocksCount - 1) * intervalN : 0
+            
+            let maxSteps = 0
+            if (leadsCount > 0) {
+               const blocksCount = Math.ceil(leadsCount / leadsPerBlockN)
+               
+               // Option A: End of the last block
+               const lastBlockIdx = blocksCount - 1
+               const itemsInLastBlock = leadsCount - (lastBlockIdx * leadsPerBlockN)
+               const lastBlockMaxDelayIdx = itemsInLastBlock - 1
+               const timeLast = lastBlockIdx + lastBlockMaxDelayIdx
+               
+               // Option B: End of the second-to-last block (if exists)
+               const timeSecondLast = (blocksCount >= 2) 
+                  ? (blocksCount - 2) + (leadsPerBlockN - 1) 
+                  : 0
+                  
+               maxSteps = Math.max(timeLast, timeSecondLast)
+            }
+            
+            const durationSec = maxSteps * intervalN
+            
             const startAt = startDate ? toDateWithTimeLocal(startDate, startTime) : null
             const lastDeliveryAt = startAt ? new Date(startAt.getTime() + durationSec * 1000) : null
             const formatDuration = (secTotal: number) => {
@@ -627,13 +716,13 @@ export default function ConfigurarEnvioPage() {
             return (
               <Card>
                 <CardHeader>
-                  <CardTitle>Tempo Estimativo de Envio</CardTitle>
+                  <CardTitle>Estimativa de Envio</CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-2">
-                  <div className="text-sm">Lote: {leadsPerBlockN} • Intervalo: {intervalN} seg</div>
+                <CardContent className="space-y-3">
+                  <div className="text-sm">Divisão: {leadsPerBlockN} • Intervalo: {intervalN} seg</div>
                   <div className="font-medium">Duração total: {formatDuration(durationSec)}</div>
                   <div className="text-sm text-muted-foreground">
-                    Último envio previsto: {formatBrazilDateTime(lastDeliveryAt)}
+                    O envio terminará em: <span className="font-semibold text-foreground">{formatBrazilDateTime(lastDeliveryAt)}</span>
                   </div>
                 </CardContent>
               </Card>

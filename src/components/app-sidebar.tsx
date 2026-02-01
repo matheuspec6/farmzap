@@ -17,10 +17,13 @@ import {
   FolderIcon,
   HelpCircleIcon,
   LayoutDashboardIcon,
+  LayoutTemplate,
   ListIcon,
   SearchIcon,
   SettingsIcon,
   UsersIcon,
+  UserIcon,
+  TagIcon,
 } from "lucide-react"
 
 import { NavDocuments } from "@/components/nav-documents"
@@ -55,12 +58,22 @@ const data = {
       icon: MessageSquareIcon,
     },
     {
+      title: "Modelos",
+      url: "/modelos",
+      icon: LayoutTemplate,
+    },
+    {
       title: "Contatos",
       url: "/contatos",
       icon: UsersIcon,
     },
     {
-      title: "Instâncias",
+      title: "Etiquetas",
+      url: "/etiquetas",
+      icon: TagIcon,
+    },
+    {
+      title: "Canais",
       url: "/instancias",
       icon: SmartphoneIcon,
     },

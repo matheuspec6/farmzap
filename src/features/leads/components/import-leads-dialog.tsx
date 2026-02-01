@@ -30,17 +30,25 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 
+interface Tag {
+  id: string
+  name: string
+  color: string
+}
+
 interface ImportLeadsDialogProps {
   onImport?: (leads: any[]) => void
   children?: React.ReactNode
+  tags?: Tag[]
 }
 
-export function ImportLeadsDialog({ onImport, children }: ImportLeadsDialogProps) {
+export function ImportLeadsDialog({ onImport, children, tags = [] }: ImportLeadsDialogProps) {
   const [open, setOpen] = useState(false)
   const [file, setFile] = useState<File | null>(null)
   const [dragActive, setDragActive] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [selectedTagId, setSelectedTagId] = useState<string>("")
   
   const [headers, setHeaders] = useState<string[]>([])
   const [fileData, setFileData] = useState<any[]>([])
@@ -154,12 +162,22 @@ export function ImportLeadsDialog({ onImport, children }: ImportLeadsDialogProps
     
     setIsLoading(true)
     
+    // Helper to clean phone
+    const cleanPhone = (phone: any) => {
+        let cleaned = String(phone || "").replace(/\D/g, '')
+        if (!cleaned.startsWith('55') && (cleaned.length === 10 || cleaned.length === 11)) {
+            cleaned = '55' + cleaned
+        }
+        return cleaned
+    }
+
     // Transform data based on mapping
     const processedData = fileData.map((row, index) => ({
         id: `imported-${index}`,
         name: row[mapping.name],
-        phone: row[mapping.phone],
-        original: row
+        phone: cleanPhone(row[mapping.phone]),
+        original: row,
+        tags: selectedTagId ? [selectedTagId] : []
     }))
 
     // Simulate delay
@@ -281,6 +299,25 @@ export function ImportLeadsDialog({ onImport, children }: ImportLeadsDialogProps
                                     ))}
                                 </select>
                             </div>
+
+                            {tags && tags.length > 0 && (
+                                <div className="space-y-1 pt-2 border-t">
+                                    <Label>Etiqueta (Opcional)</Label>
+                                    <select 
+                                        className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                        value={selectedTagId}
+                                        onChange={(e) => setSelectedTagId(e.target.value)}
+                                    >
+                                        <option value="">Sem etiqueta</option>
+                                        {tags.map(t => (
+                                            <option key={t.id} value={t.id}>{t.name}</option>
+                                        ))}
+                                    </select>
+                                    <p className="text-[0.8rem] text-muted-foreground">
+                                        Todos os contatos importados receberão esta etiqueta.
+                                    </p>
+                                </div>
+                            )}
                         </div>
                     </div>
 

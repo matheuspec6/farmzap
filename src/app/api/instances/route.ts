@@ -19,10 +19,17 @@ export async function GET() {
     })
 
     if (!response.ok) {
+      console.error('Evolution API error:', response.status, response.statusText)
       return NextResponse.json({ instances: [] }, { status: 200 })
     }
 
     const data = await response.json()
+    console.log('Evolution API data:', data)
+
+    if (!data) {
+        return NextResponse.json({ instances: [] }, { status: 200 })
+    }
+
     const items = Array.isArray(data) ? data : (data.instances || [])
 
     const normalize = (s: any) =>
@@ -44,7 +51,8 @@ export async function GET() {
       }))
 
     return NextResponse.json({ instances })
-  } catch {
+  } catch (error) {
+    console.error('API Instances Error:', error)
     return NextResponse.json({ instances: [] }, { status: 200 })
   }
 }

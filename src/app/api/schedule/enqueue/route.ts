@@ -71,7 +71,16 @@ export async function POST(request: Request) {
         await sendQueue.add(
           "send-text",
           { baseUrl, instance, number, text, campaignId, blockIndex, delay: 0 },
-          { delay: leadDelay, removeOnComplete: true, removeOnFail: true }
+          { 
+            delay: leadDelay, 
+            removeOnComplete: { count: 2000, age: 24 * 3600 }, 
+            removeOnFail: { count: 5000, age: 7 * 24 * 3600 },
+            attempts: 3, // Tenta enviar 3 vezes em caso de falha
+            backoff: {
+              type: 'exponential',
+              delay: 2000 // Espera 2s, 4s, 8s entre tentativas
+            }
+          }
         )
         count++
       }
