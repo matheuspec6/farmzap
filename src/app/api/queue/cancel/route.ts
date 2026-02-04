@@ -10,18 +10,29 @@ export async function POST(request: Request) {
       return NextResponse.json({ removed: 0 }, { status: 200 })
     }
     const queue = getQueue()
-    const jobs = await queue.getJobs(["waiting", "delayed"], 0, limit)
-    let removed = 0
-    for (const j of jobs) {
-      const data: any = j.data || {}
-      if (data.campaignId === campaignId) {
-        try {
-          await j.remove()
-          removed++
-        } catch {}
+    const batch = Math.max(1, limit)
+    const types = ["waiting", "delayed", "active", "paused"] as const
+    const jobsToRemove: any[] = []
+    let start = 0
+    while (true) {
+      const jobs = await queue.getJobs(types as any, start, start + batch - 1)
+      if (!jobs.length) break
+      for (const j of jobs) {
+        const data: any = j.data || {}
+        if (data.campaignId === campaignId) {
+          jobsToRemove.push(j)
+        }
       }
+      start += batch
     }
-    return NextResponse.json({ removed }, { status: 200 })
+    let removed = 0
+    for (const j of jobsToRemove) {
+      try {
+        await j.remove()
+        removed++
+      } catch {}
+    }
+    return NextResponse.json({ removed, matched: jobsToRemove.length }, { status: 200 })
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || String(e) }, { status: 500 })
   }

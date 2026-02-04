@@ -24,6 +24,45 @@ export async function POST(request: Request) {
       if (!body.provider && data?.value) provider = data.value
     } catch {}
 
+    // Pré-carrega tokens das instâncias Uazapi (quando disponível)
+    const tokensByName = new Map<string, string>()
+    try {
+      const adminUrl = (process.env.UAZAPI_ADMIN_URL || process.env.UAZAPI_URL || "").replace(/\/$/, "")
+      const adminToken = process.env.UAZAPI_ADMIN_TOKEN || ""
+      if (adminUrl && adminToken) {
+        const resp = await fetch(`${adminUrl}/instance/all`, {
+          headers: { Accept: "application/json", admintoken: adminToken },
+          cache: "no-store",
+        })
+        if (resp.ok) {
+          const json = await resp.json()
+          if (Array.isArray(json)) {
+            for (const it of json) {
+              const nm = String(it?.name || "").trim()
+              const tk = String(it?.token || "")
+              if (nm && tk) tokensByName.set(nm, tk)
+            }
+          }
+        }
+      }
+      try {
+        const { data: tokenRows } = await supabase
+          .from("app_settings")
+          .select("key, value")
+          .like("key", "uazapi_token_%")
+        if (Array.isArray(tokenRows)) {
+          for (const row of tokenRows) {
+            const key = String(row.key || "")
+            const nm = key.startsWith("uazapi_token_") ? key.substring("uazapi_token_".length) : ""
+            const tk = String(row.value || "")
+            if (nm && tk && !tokensByName.has(nm)) {
+              tokensByName.set(nm, tk)
+            }
+          }
+        }
+      } catch {}
+    } catch {}
+
     let count = 0
     let url = process.env.REDIS_URL || "redis://127.0.0.1:6379"
     if (body.redisUrl) {
@@ -114,6 +153,9 @@ export async function POST(request: Request) {
            if (choices && choices.length) jobData.choices = choices
            if (footerText) jobData.footerText = footerText
            if (imageButton) jobData.imageButton = imageButton
+           const chosen = instance ? String(instance) : ""
+           const tk = chosen ? (tokensByName.get(chosen) || "") : ""
+           if (tk) jobData.uazapiToken = tk
         }
 
         await sendQueue.add(
@@ -121,12 +163,12 @@ export async function POST(request: Request) {
           jobData,
           { 
             delay: leadDelay, 
-            removeOnComplete: { count: 2000, age: 24 * 3600 }, 
+            removeOnComplete: { count: 1000, age: 24 * 3600 }, 
             removeOnFail: { count: 5000, age: 7 * 24 * 3600 },
-            attempts: 3, // Tenta enviar 3 vezes em caso de falha
+            attempts: 5, // Tenta enviar 5 vezes em caso de falha
             backoff: {
               type: 'exponential',
-              delay: 2000 // Espera 2s, 4s, 8s entre tentativas
+              delay: 10000 // Espera 10s, 20s, 40s entre tentativas
             }
           }
         )

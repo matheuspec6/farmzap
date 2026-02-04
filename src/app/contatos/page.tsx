@@ -58,10 +58,17 @@ export default function ContatosPage() {
   
   // Multi-selection state
   const [selectedContacts, setSelectedContacts] = React.useState<string[]>([])
+  const [lastSelectedIndex, setLastSelectedIndex] = React.useState<number | null>(null)
+  const shiftPressedRef = React.useRef(false)
 
   // Pagination state
   const [currentPage, setCurrentPage] = React.useState(1)
   const [rowsPerPage, setRowsPerPage] = React.useState(25)
+  const [bulkTagOpen, setBulkTagOpen] = React.useState(false)
+  const [bulkTagSaving, setBulkTagSaving] = React.useState(false)
+  const [bulkTagId, setBulkTagId] = React.useState<string>("")
+  const [filterTagOpen, setFilterTagOpen] = React.useState(false)
+  const [filterTagId, setFilterTagId] = React.useState<string>("")
 
   const loadData = async () => {
     setIsLoading(true)
@@ -87,13 +94,18 @@ export default function ContatosPage() {
 
   const filteredContacts = contacts.filter(c => {
     const q = query.toLowerCase()
-    return (c.name || "").toLowerCase().includes(q) || c.phone.includes(q)
+    const matchesQuery = (c.name || "").toLowerCase().includes(q) || c.phone.includes(q)
+    const matchesTag = filterTagId ? (c.tags?.includes(filterTagId) ?? false) : true
+    return matchesQuery && matchesTag
   })
 
   // Reset page when query changes
   React.useEffect(() => {
     setCurrentPage(1)
   }, [query])
+  React.useEffect(() => {
+    setCurrentPage(1)
+  }, [filterTagId])
 
   const totalPages = Math.ceil(filteredContacts.length / rowsPerPage)
   const startIndex = (currentPage - 1) * rowsPerPage
@@ -210,14 +222,30 @@ export default function ContatosPage() {
     }
   }
 
-  const toggleSelectContact = (id: string) => {
-    setSelectedContacts(prev => {
-        if (prev.includes(id)) {
-            return prev.filter(item => item !== id)
+  const toggleSelectContact = (id: string, index: number, checked?: boolean, isShift?: boolean) => {
+    const targetChecked = typeof checked === "boolean" ? checked : !selectedContacts.includes(id)
+    if (isShift && lastSelectedIndex !== null) {
+      const start = Math.min(lastSelectedIndex, index)
+      const end = Math.max(lastSelectedIndex, index)
+      const idsInRange = paginatedContacts.slice(start, end + 1).map(c => c.id)
+      setSelectedContacts(prev => {
+        if (targetChecked) {
+          return Array.from(new Set([...prev, ...idsInRange]))
         } else {
-            return [...prev, id]
+          return prev.filter(item => !idsInRange.includes(item))
         }
-    })
+      })
+    } else {
+      setSelectedContacts(prev => {
+        if (targetChecked) {
+          return Array.from(new Set([...prev, id]))
+        } else {
+          return prev.filter(item => item !== id)
+        }
+      })
+    }
+    setLastSelectedIndex(index)
+    shiftPressedRef.current = false
   }
 
   const handleBulkDelete = async () => {
@@ -233,6 +261,31 @@ export default function ContatosPage() {
             toast.error("Erro ao remover contatos")
             setIsLoading(false)
         }
+    }
+  }
+  
+  const handleBulkTagSave = async () => {
+    setBulkTagSaving(true)
+    try {
+      const ids = [...selectedContacts]
+      if (ids.length === 0) {
+        setBulkTagSaving(false)
+        setBulkTagOpen(false)
+        return
+      }
+      const applyTags = bulkTagId ? [bulkTagId] : []
+      for (const id of ids) {
+        await contactService.updateContact(id, { tags: applyTags })
+      }
+      toast.success("Etiqueta(s) atualizada(s) para os contatos selecionados")
+      setBulkTagOpen(false)
+      setSelectedContacts([])
+      await loadData()
+    } catch (error) {
+      console.error(error)
+      toast.error("Erro ao atualizar etiquetas")
+    } finally {
+      setBulkTagSaving(false)
     }
   }
 
@@ -268,6 +321,21 @@ export default function ContatosPage() {
                     value={query}
                     onChange={e => setQuery(e.target.value)}
                 />
+                <Button variant="outline" onClick={() => setFilterTagOpen(true)}>
+                  <TagIcon className="mr-2 h-4 w-4" />
+                  Filtrar por Tag
+                </Button>
+                {filterTagId && (
+                  <Badge variant="outline" className="ml-1">
+                    {getTagObj(filterTagId)?.name || "Etiqueta"}
+                  </Badge>
+                )}
+                {selectedContacts.length > 0 && (
+                  <Button variant="outline" onClick={() => setBulkTagOpen(true)}>
+                    <TagIcon className="mr-2 h-4 w-4" />
+                    Alterar Tag ({selectedContacts.length})
+                  </Button>
+                )}
             </div>
         </CardHeader>
         <CardContent>
@@ -298,12 +366,13 @@ export default function ContatosPage() {
                 </TableRow>
               ) : (
                 <>
-                  {paginatedContacts.map((contact) => (
+                  {paginatedContacts.map((contact, idx) => (
                     <TableRow key={contact.id}>
                       <TableCell>
                           <Checkbox 
                               checked={selectedContacts.includes(contact.id)}
-                              onCheckedChange={() => toggleSelectContact(contact.id)}
+                              onMouseDown={(e) => { shiftPressedRef.current = (e as any).shiftKey }}
+                              onCheckedChange={(checked) => toggleSelectContact(contact.id, idx, !!checked, shiftPressedRef.current)}
                           />
                       </TableCell>
                       <TableCell className="font-medium">{contact.name}</TableCell>
@@ -518,6 +587,72 @@ export default function ContatosPage() {
             <DialogFooter>
                 <Button onClick={() => setViewingMessage(null)}>Fechar</Button>
             </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
+      <Dialog open={bulkTagOpen} onOpenChange={setBulkTagOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Alterar Tag</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="text-sm text-muted-foreground">
+              {selectedContacts.length} contato(s) selecionado(s)
+            </div>
+            <div className="space-y-2">
+              <Label>Etiqueta</Label>
+              <select
+                className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                value={bulkTagId}
+                onChange={(e) => setBulkTagId(e.target.value)}
+              >
+                <option value="">Sem etiqueta</option>
+                {tags.map(t => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkTagOpen(false)}>Cancelar</Button>
+            <Button onClick={handleBulkTagSave} disabled={bulkTagSaving || selectedContacts.length === 0}>
+              {bulkTagSaving ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Salvando...
+                </>
+              ) : (
+                "Alterar"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
+      <Dialog open={filterTagOpen} onOpenChange={setFilterTagOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Filtrar por Tag</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Etiqueta</Label>
+              <select
+                className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                value={filterTagId}
+                onChange={(e) => setFilterTagId(e.target.value)}
+              >
+                <option value="">Todas</option>
+                {tags.map(t => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setFilterTagId(""); setFilterTagOpen(false) }}>Limpar</Button>
+            <Button onClick={() => setFilterTagOpen(false)}>Aplicar</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

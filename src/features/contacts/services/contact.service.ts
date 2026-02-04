@@ -32,7 +32,10 @@ export const contactService = {
   async createTag(tag: Omit<Tag, "id" | "created_at">): Promise<Tag> {
     const { data, error } = await supabase
       .from("tags")
-      .insert(tag)
+      .insert({
+        name: tag.name,
+        color: tag.color,
+      })
       .select()
       .single()
     
@@ -43,7 +46,10 @@ export const contactService = {
   async updateTag(id: string, updates: Partial<Tag>): Promise<Tag> {
     const { data, error } = await supabase
       .from("tags")
-      .update(updates)
+      .update({
+        name: updates.name,
+        color: updates.color,
+      })
       .eq("id", id)
       .select()
       .single()
@@ -123,19 +129,33 @@ export const contactService = {
   },
 
   async updateContact(id: string, updates: Partial<Contact>): Promise<Contact> {
-    // 1. Atualizar dados básicos
-    const { data: updatedContact, error } = await supabase
-      .from("contacts")
-      .update({
-        name: updates.name,
-        phone: updates.phone,
-        email: updates.email
-      })
-      .eq("id", id)
-      .select()
-      .single()
-    
-    if (error) throw error
+    // 1. Atualizar dados básicos somente se houver campos
+    let updatedContact: any = null
+    const hasBasic =
+      typeof updates.name !== "undefined" ||
+      typeof updates.phone !== "undefined" ||
+      typeof updates.email !== "undefined"
+    if (hasBasic) {
+      const { data, error } = await supabase
+        .from("contacts")
+        .update({
+          name: updates.name,
+          phone: updates.phone,
+          email: updates.email
+        })
+        .eq("id", id)
+        .select()
+        .maybeSingle()
+      if (error) throw error
+      updatedContact = data
+    } else {
+      const { data } = await supabase
+        .from("contacts")
+        .select("*")
+        .eq("id", id)
+        .maybeSingle()
+      updatedContact = data
+    }
 
     // 2. Atualizar tags (se fornecido)
     if (updates.tags) {
@@ -152,7 +172,7 @@ export const contactService = {
       }
     }
 
-    return { ...updatedContact, tags: updates.tags || [] }
+    return { ...(updatedContact || { id }), tags: updates.tags || [] }
   },
 
   async deleteContact(id: string): Promise<void> {

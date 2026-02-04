@@ -5,6 +5,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { SiteHeader } from "@/components/site-header";
 import { ThemeProvider } from "@/components/theme-provider";
+import Script from "next/script";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
@@ -21,7 +22,21 @@ export default function RootLayout({
   return (
     <html lang="pt-BR" suppressHydrationWarning>
       <body className={`${inter.variable} font-sans antialiased`}>
-        <ThemeProvider attribute="class" defaultTheme="light" disableTransitionOnChange>
+        <Script
+          id="theme-preset-init"
+          strategy="beforeInteractive"
+          dangerouslySetInnerHTML={{
+            __html: `
+              try {
+                var preset = localStorage.getItem('themePreset');
+                if (preset) {
+                  document.documentElement.setAttribute('data-theme-preset', preset);
+                }
+              } catch (e) {}
+            `,
+          }}
+        />
+        <ThemeProvider attribute="class" defaultTheme="system" disableTransitionOnChange>
           <SidebarProvider>
             <AppSidebar />
             <SidebarInset>

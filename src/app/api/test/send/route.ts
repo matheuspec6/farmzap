@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { supabase } from "@/lib/supabase"
 
 export async function POST(request: Request) {
   try {
@@ -15,8 +16,25 @@ export async function POST(request: Request) {
     const imageButton = body.imageButton ? String(body.imageButton) : undefined
 
     if (provider === "uazapi") {
-      const uazapiUrl = process.env.UAZAPI_URL || "https://free.uazapi.com"
-      const uazapiToken = process.env.UAZAPI_TOKEN || ""
+      const uazapiUrl = (process.env.UAZAPI_ADMIN_URL || process.env.UAZAPI_URL || "https://free.uazapi.com").replace(/\/$/, "")
+      const envToken = process.env.UAZAPI_TOKEN || ""
+      let uazapiToken = String((body as any).uazapiToken || envToken || "")
+      
+      if (!uazapiToken) {
+        const instanceName = String(body.instance || "").trim()
+        if (instanceName) {
+          try {
+            const { data } = await supabase
+              .from("app_settings")
+              .select("value")
+              .eq("key", `uazapi_token_${instanceName}`)
+              .maybeSingle()
+            if (data?.value) {
+              uazapiToken = String(data.value)
+            }
+          } catch {}
+        }
+      }
       
       if (!uazapiUrl || !uazapiToken) {
         return NextResponse.json({ ok: false, error: "missing_uazapi_config" }, { status: 200 })

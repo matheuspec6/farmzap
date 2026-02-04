@@ -39,11 +39,12 @@ import { ChartResponses } from "@/features/dashboard/components/chart-responses"
     from.setDate(now.getDate() - 7)
     return { from, to: now }
   })
-   const [totalEnvios, setTotalEnvios] = React.useState<number | null>(null)
-   const [loadingTotal, setLoadingTotal] = React.useState(false)
-  const [instances, setInstances] = React.useState<{ name?: string; profileName?: string }[]>([])
+  const [totalEnvios, setTotalEnvios] = React.useState<number | null>(null)
+  const [loadingTotal, setLoadingTotal] = React.useState(false)
+  const [activeChannels, setActiveChannels] = React.useState<number>(0)
   const [totalResponses, setTotalResponses] = React.useState<number | null>(null)
   const [secretNumber, setSecretNumber] = React.useState<number | null>(null)
+  const [title, setTitle] = React.useState<string>("")
  
  // range já inicializado com cache ou padrão; não precisa de efeito para carregar
 
@@ -97,17 +98,29 @@ import { ChartResponses } from "@/features/dashboard/components/chart-responses"
      fetchTotal()
    }, [range?.from, range?.to])
  
- React.useEffect(() => {
-   const loadInstances = async () => {
-     try {
-       const res = await fetch("/api/instances", { cache: "no-store" })
-       const json = await res.json()
-       const list = Array.isArray(json.instances) ? json.instances : []
-       setInstances(list.map((i: any) => ({ name: i.name, profileName: i.profileName })))
-     } catch {}
-   }
-   loadInstances()
- }, [])
+React.useEffect(() => {
+  try {
+    const el = document.querySelector("span.text-base.font-semibold")
+    const txt = el ? String(el.textContent || "").trim() : ""
+    if (txt) setTitle(txt)
+  } catch {}
+}, [])
+
+React.useEffect(() => {
+  const loadInstances = async () => {
+    try {
+      const url = title ? `/api/instances?title=${encodeURIComponent(title)}` : `/api/instances`
+      const res = await fetch(url, { cache: "no-store" })
+      const json = await res.json()
+      const list = Array.isArray(json.instances) ? json.instances : []
+      const connected = list.filter((i: any) => String(i?.status || "").toLowerCase() === "connected")
+      setActiveChannels(connected.length)
+    } catch {
+      setActiveChannels(0)
+    }
+  }
+  loadInstances()
+}, [title])
  
   React.useEffect(() => {
     try {
@@ -157,7 +170,7 @@ import { ChartResponses } from "@/features/dashboard/components/chart-responses"
               <Smartphone className="h-4 w-4 text-muted-foreground" />
              </CardHeader>
              <CardContent>
-              <div className="text-2xl font-bold">{instances.length}</div>
+              <div className="text-2xl font-bold">{activeChannels}</div>
              </CardContent>
            </Card>
           <Card>

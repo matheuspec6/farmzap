@@ -69,6 +69,8 @@ export default function EnviosPage() {
   const [campaigns, setCampaigns] = React.useState<any[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
   const [selectedCampaigns, setSelectedCampaigns] = React.useState<string[]>([])
+  const [lastSelectedCampaignIndex, setLastSelectedCampaignIndex] = React.useState<number | null>(null)
+  const shiftPressedCampaignRef = React.useRef(false)
   const [debugOpen, setDebugOpen] = React.useState(false)
   const [debugCampaign, setDebugCampaign] = React.useState<any | null>(null)
   const [queueCounts, setQueueCounts] = React.useState<any | null>(null)
@@ -297,6 +299,31 @@ export default function EnviosPage() {
     return matchesText && matchesStatus
   })
 
+  const toggleSelectCampaign = (id: string, index: number, checked?: boolean, isShift?: boolean) => {
+    const targetChecked = typeof checked === "boolean" ? checked : !selectedCampaigns.includes(id)
+    if (isShift && lastSelectedCampaignIndex !== null) {
+      const start = Math.min(lastSelectedCampaignIndex, index)
+      const end = Math.max(lastSelectedCampaignIndex, index)
+      const idsInRange = filteredCampaigns.slice(start, end + 1).map(c => c.id)
+      setSelectedCampaigns(prev => {
+        if (targetChecked) {
+          return Array.from(new Set([...prev, ...idsInRange]))
+        } else {
+          return prev.filter(item => !idsInRange.includes(item))
+        }
+      })
+    } else {
+      setSelectedCampaigns(prev => {
+        if (targetChecked) {
+          return Array.from(new Set([...prev, id]))
+        } else {
+          return prev.filter(item => item !== id)
+        }
+      })
+    }
+    setLastSelectedCampaignIndex(index)
+    shiftPressedCampaignRef.current = false
+  }
   return (
     <div className="flex-1 space-y-4 p-8 pt-6">
       <div className="flex items-center justify-between space-y-2">
@@ -428,19 +455,14 @@ export default function EnviosPage() {
                     </TableCell>
                 </TableRow>
             ) : (
-                filteredCampaigns.map((campaign) => (
+                filteredCampaigns.map((campaign, idx) => (
                 <TableRow key={campaign.id}>
                     <TableCell>
-                    <Checkbox 
+                      <Checkbox
                         checked={selectedCampaigns.includes(campaign.id)}
-                        onCheckedChange={(checked) => {
-                            if (checked) {
-                                setSelectedCampaigns([...selectedCampaigns, campaign.id])
-                            } else {
-                                setSelectedCampaigns(selectedCampaigns.filter(id => id !== campaign.id))
-                            }
-                        }}
-                    />
+                        onMouseDown={(e) => { shiftPressedCampaignRef.current = (e as any).shiftKey }}
+                        onCheckedChange={(checked) => toggleSelectCampaign(campaign.id, idx, !!checked, shiftPressedCampaignRef.current)}
+                      />
                     </TableCell>
                     <TableCell>
                         <Badge variant={campaign.veiculacao === "agendado" || campaign.veiculacao === "processando" ? "default" : "secondary"}>
@@ -565,7 +587,7 @@ export default function EnviosPage() {
       </AlertDialog>
 
       <Dialog open={debugOpen} onOpenChange={setDebugOpen}>
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="w-full max-w-4xl md:max-w-[80vw] max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Debug da Campanha {debugCampaign?.name || ""}</DialogTitle>
           </DialogHeader>
@@ -576,7 +598,7 @@ export default function EnviosPage() {
               <TabsTrigger value="log">Log</TabsTrigger>
             </TabsList>
             <TabsContent value="processo">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="rounded-md border p-4">
                   <h3 className="font-medium mb-2">Contagens da Fila</h3>
                   <div className="text-sm space-y-1">
@@ -613,7 +635,7 @@ export default function EnviosPage() {
               </div>
             </TabsContent>
             <TabsContent value="config">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="rounded-md border p-4">
                   <h3 className="font-medium mb-2">Redis</h3>
                   <div className="text-sm">{redisStatus ? (redisStatus.ok ? "Conectado" : `Erro: ${redisStatus.message}`) : "Carregando..."}</div>
@@ -635,7 +657,7 @@ export default function EnviosPage() {
               </div>
             </TabsContent>
             <TabsContent value="log">
-              <div className="rounded-md border">
+              <div className="rounded-md border overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>

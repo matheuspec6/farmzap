@@ -40,13 +40,30 @@ async function getConnectedInstances(): Promise<string[]> {
   }
 }
 
+async function withTimeout<T>(ms: number, fn: () => Promise<T>): Promise<T> {
+  return await new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("job_timeout")), ms)
+    fn().then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (error) => {
+        clearTimeout(timer)
+        reject(error)
+      }
+    )
+  })
+}
+
 export function ensureWorker(url?: string): Worker {
   const key = url || process.env.REDIS_URL || "redis://127.0.0.1:6379"
   if (!workers.has(key)) {
     const w = new Worker(
       "sendMessages",
       async job => {
-        const data = job.data as {
+        return await withTimeout(35000, async () => {
+          const data = job.data as {
           baseUrl: string
           instance: string
           number: string
@@ -56,13 +73,28 @@ export function ensureWorker(url?: string): Worker {
           delay?: number
           attemptedInstances?: string[] // Rastreia instâncias já tentadas
           provider?: string
-        }
-        
-        // Configura Timeout de 30s para a requisição
-        const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), 30000)
+          }
+          let timeoutId: any = undefined
+          let controller: AbortController | undefined = undefined
 
-        try {
+          try {
+          const campaignId = data.campaignId
+          if (campaignId) {
+            try {
+              const { data: campaign } = await supabase
+                .from("campaigns")
+                .select("status")
+                .eq("id", campaignId)
+                .maybeSingle()
+              const status = String(campaign?.status || "")
+              if (status === "cancelado" || status === "excluido") {
+                return { ok: true, skipped: true, reason: status, campaignId }
+              }
+            } catch {}
+          }
+
+          controller = new AbortController()
+          timeoutId = setTimeout(() => controller?.abort(), 30000)
           let ok = false
           let status = 0
           let body: any = null
@@ -70,8 +102,25 @@ export function ensureWorker(url?: string): Worker {
           let payload: any = {}
 
           if (data.provider === "uazapi") {
-            const uazapiUrl = (process.env.UAZAPI_URL || "https://free.uazapi.com").replace(/\/$/, "")
-            const uazapiToken = (process.env.UAZAPI_TOKEN || "").trim()
+            const uazapiUrl = (process.env.UAZAPI_ADMIN_URL || process.env.UAZAPI_URL || "https://free.uazapi.com").replace(/\/$/, "")
+            const envToken = (process.env.UAZAPI_TOKEN || "").trim()
+            let uazapiToken = String((data as any).uazapiToken || envToken || "").trim()
+            
+            if (!uazapiToken) {
+              const name = String((data as any).instance || "").trim()
+              if (name) {
+                try {
+                  const { data: setting } = await supabase
+                    .from("app_settings")
+                    .select("value")
+                    .eq("key", `uazapi_token_${name}`)
+                    .maybeSingle()
+                  if (setting?.value) {
+                    uazapiToken = String(setting.value).trim()
+                  }
+                } catch {}
+              }
+            }
             
             console.log(`[Worker] Processando envio Uazapi para ${data.number}`)
 
@@ -109,7 +158,7 @@ export function ensureWorker(url?: string): Worker {
               signal: controller.signal
             })
             
-            clearTimeout(timeoutId)
+            if (timeoutId) clearTimeout(timeoutId)
             status = resp.status
             ok = resp.ok // Uazapi retorna 200/201 como ok
             
@@ -143,7 +192,7 @@ export function ensureWorker(url?: string): Worker {
               signal: controller.signal
             })
 
-            clearTimeout(timeoutId)
+            if (timeoutId) clearTimeout(timeoutId)
             status = resp.status
             ok = resp.ok
 
@@ -157,7 +206,6 @@ export function ensureWorker(url?: string): Worker {
             } catch {}
           }
           
-          const campaignId = data.campaignId
           const phone = String(data.number || "").replace(/\D/g, "")
           
           if (campaignId && phone) {
@@ -207,66 +255,72 @@ export function ensureWorker(url?: string): Worker {
           
           return { ok, status, body, endpoint, payload, campaignId, blockIndex: data.blockIndex }
 
-        } catch (err: any) {
-          clearTimeout(timeoutId)
+          } catch (err: any) {
+            if (timeoutId) clearTimeout(timeoutId)
           
-          // LÓGICA DE FAILOVER (Troca de Instância em caso de erro)
-          const currentInstance = data.instance
-          const attempted = new Set(data.attemptedInstances || [])
-          attempted.add(currentInstance)
+            // LÓGICA DE FAILOVER (Troca de Instância em caso de erro)
+            const currentInstance = data.instance
+            const attempted = new Set(data.attemptedInstances || [])
+            attempted.add(currentInstance)
 
-          // Só tenta failover se for erro de rede/servidor e tivermos campaignId (envio crítico)
-          // Ignora se for erro 400 (Bad Request - provavelmente número inválido) a menos que seja timeout
-          // E ignora se for Uazapi (pois não usa sistema de instâncias da Evolution)
-          const isRecoverable = true 
+            // Só tenta failover se for erro de rede/servidor e tivermos campaignId (envio crítico)
+            // Ignora se for erro 400 (Bad Request - provavelmente número inválido) a menos que seja timeout
+            // E ignora se for Uazapi (pois não usa sistema de instâncias da Evolution)
+            const isRecoverable = true 
 
-          if (isRecoverable && data.campaignId && data.provider !== 'uazapi') {
-             console.log(`[Failover] Falha na instância ${currentInstance}. Tentando buscar alternativa...`)
+            if (isRecoverable && data.campaignId && data.provider !== 'uazapi') {
+               console.log(`[Failover] Falha na instância ${currentInstance}. Tentando buscar alternativa...`)
              
-             // Busca instâncias online AGORA
-             const onlineInstances = await getConnectedInstances()
+               // Busca instâncias online AGORA
+               const onlineInstances = await getConnectedInstances()
              
-             // Encontra uma instância que esteja online e AINDA NÃO foi tentada neste job
-             const nextInstance = onlineInstances.find(name => !attempted.has(name))
+               // Encontra uma instância que esteja online e AINDA NÃO foi tentada neste job
+               const nextInstance = onlineInstances.find(name => !attempted.has(name))
 
-             if (nextInstance) {
-               console.log(`[Failover] Migrando job de ${currentInstance} para ${nextInstance}`)
+               if (nextInstance) {
+                 console.log(`[Failover] Migrando job de ${currentInstance} para ${nextInstance}`)
                
-               const redisUrl = url || process.env.REDIS_URL || "redis://127.0.0.1:6379"
-               const queue = getQueue(redisUrl)
+                 const redisUrl = url || process.env.REDIS_URL || "redis://127.0.0.1:6379"
+                 const queue = getQueue(redisUrl)
                
-               // Recria o job na fila com a nova instância
-               await queue.add(job.name, {
-                 ...data,
-                 instance: nextInstance,
-                 attemptedInstances: Array.from(attempted)
-               }, {
-                 delay: 1000, // Espera 1s antes de tentar na nova
-                 priority: 1, // Alta prioridade para retries
-                 removeOnComplete: { count: 2000, age: 24 * 3600 },
-                 removeOnFail: { count: 5000, age: 7 * 24 * 3600 }
-               })
+                 // Recria o job na fila com a nova instância
+                 await queue.add(job.name, {
+                   ...data,
+                   instance: nextInstance,
+                   attemptedInstances: Array.from(attempted)
+                 }, {
+                   delay: 1000, // Espera 1s antes de tentar na nova
+                   priority: 1, // Alta prioridade para retries
+                   removeOnComplete: { count: 1000, age: 24 * 3600 },
+                   removeOnFail: { count: 5000, age: 7 * 24 * 3600 },
+                   attempts: 5,
+                   backoff: { type: "exponential", delay: 10000 }
+                 })
 
-               // Retorna sucesso "falso" para remover este job da falha e evitar retry na instância ruim
-               return { 
-                 ok: false, 
-                 failover: true, 
-                 originalError: err.message, 
-                 migratedTo: nextInstance,
-                 previousInstance: currentInstance
+                 // Retorna sucesso "falso" para remover este job da falha e evitar retry na instância ruim
+                 return { 
+                   ok: false, 
+                   failover: true, 
+                   originalError: err.message, 
+                   migratedTo: nextInstance,
+                   previousInstance: currentInstance
+                 }
+               } else {
+                 console.warn(`[Failover] Nenhuma outra instância disponível. Tentativas: ${Array.from(attempted).join(", ")}`)
                }
-             } else {
-               console.warn(`[Failover] Nenhuma outra instância disponível. Tentativas: ${Array.from(attempted).join(", ")}`)
-             }
-          }
+            }
 
-          throw err // Se não conseguiu failover, relança o erro para o BullMQ gerenciar o retry padrão
-        }
+            throw err // Se não conseguiu failover, relança o erro para o BullMQ gerenciar o retry padrão
+          }
+        })
       },
       { 
         connection: { url: key },
-        concurrency: 5, // Processa 5 mensagens simultaneamente
-        lockDuration: 30000 // Garante que o job não expire enquanto processa (30s)
+        concurrency: 3, // Processa 3 mensagens simultaneamente
+        limiter: { max: 10, duration: 1000 },
+        lockDuration: 35000, // Garante que o job não expire enquanto processa (35s)
+        stalledInterval: 10000,
+        maxStalledCount: 2
       }
     )
     w.on("error", (err) => {

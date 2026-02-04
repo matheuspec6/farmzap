@@ -96,6 +96,7 @@ export const campaignService = {
       .update({ status: 'agendado' })
       .eq('campaign_id', id)
       .neq('status', 'enviado')
+      .neq('status', 'falhou')
     if (leadsError) throw leadsError
   },
 

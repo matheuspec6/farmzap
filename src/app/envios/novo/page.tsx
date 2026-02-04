@@ -115,11 +115,15 @@ export default function ConfigurarEnvioPage() {
   React.useEffect(() => {
     const loadInstances = async () => {
       try {
-        const res = await fetch("/api/instances", { cache: "no-store" })
+        const el = document.querySelector("span.text-base.font-semibold")
+        const title = el ? String(el.textContent || "").trim() : ""
+        const url = title ? `/api/instances?title=${encodeURIComponent(title)}` : `/api/instances`
+        const res = await fetch(url, { cache: "no-store" })
         const json = await res.json()
         const list = Array.isArray(json.instances) ? json.instances : []
-        setConnectedInstances(list)
-        setSelectedInstanceNames(list.map((i: any) => i.name).filter(Boolean))
+        const onlyConnected = list.filter((i: any) => String(i?.status || "").toLowerCase() === "connected")
+        setConnectedInstances(onlyConnected)
+        setSelectedInstanceNames(onlyConnected.map((i: any) => i.name).filter(Boolean))
       } catch {}
     }
     loadInstances()
